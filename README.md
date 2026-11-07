@@ -111,8 +111,8 @@ last setting. The watchdog closes that gap; see
 [evcc watchdog](#evcc-watchdog-1) below.
 
 - **Watch evcc via** — *Off*, *evcc web API* or *MQTT*.
-- **evcc address** — for the API, e.g. `http://192.168.1.20:7070`
-  (checked when you save).
+- **evcc address** — for the API, e.g. `192.168.1.20:7070` (checked when you
+  save; a failed check shows the reason at the top of the form).
 - **MQTT topic** — for MQTT, normally `evcc/updated`.
 - **Waiting time before capping** — normally 120 s.
 
@@ -223,13 +223,17 @@ re-send an unchanged value by itself).
 
 While capped, every write respects the cap: evcc commands, a new session,
 a Modbus reconnect and the end of a phase-recovery pause. A Repairs notice
-and the diagnostic **evcc connection** binary sensor show the state.
+and the diagnostic **evcc connection** binary sensor show the state (on the
+device page under *Diagnostic*; its attributes include `seconds_since_seen`
+and `last_error`). The evcc watchdog settings page also shows the live status
+at the top.
 
 Two sources, pick whichever fits your setup:
 
-- **evcc web API** — Home Assistant polls `/api/health` every few seconds
-  (falling back to `/api/state` on builds without it). An unhealthy evcc
-  (HTTP 5xx) counts as silent. Good for evcc in its own container.
+- **evcc web API** — Home Assistant reads `/api/state` every few seconds
+  (no login needed). Only a JSON answer counts, so another web server on that
+  address can't pass for evcc. Good for evcc in its own container; use its IP
+  if Home Assistant can't resolve the container name.
 - **MQTT** — needs `mqtt:` configured in evcc and Home Assistant's MQTT
   integration connected to the **same broker**. Any live message on the
   topic counts; retained messages (replayed by the broker on subscribe) do

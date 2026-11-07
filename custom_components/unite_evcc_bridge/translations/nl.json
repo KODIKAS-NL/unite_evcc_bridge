@@ -213,7 +213,7 @@
       },
       "evcc": {
         "title": "evcc-waakhond",
-        "description": "De eigen noodstroom van de lader merkt alleen op als Home Assistant stil valt. Stopt evcc zelf (crash, netwerk, container uit), dan houdt Home Assistant de lader in leven op de laatste instelling van evcc. Met deze waakhond wordt de stroom begrensd op de noodstroom (scherm Geavanceerd) zodra evcc geen teken van leven geeft, en wordt de instelling van evcc teruggezet als het terugkomt.",
+        "description": "De eigen noodstroom van de lader merkt alleen op als Home Assistant stil valt. Stopt evcc zelf (crash, netwerk, container uit), dan houdt Home Assistant de lader in leven op de laatste instelling van evcc. Met deze waakhond wordt de stroom begrensd op de noodstroom (scherm Geavanceerd) zodra evcc geen teken van leven geeft, en wordt de instelling van evcc teruggezet als het terugkomt.\n\n**Status:** {status}",
         "data": {
           "evcc_watchdog_mode": "evcc bewaken via",
           "evcc_api_url": "evcc-adres",
@@ -222,7 +222,7 @@
         },
         "data_description": {
           "evcc_watchdog_mode": "Uit, de web-API van evcc, of een MQTT-topic dat evcc elke cyclus publiceert. MQTT vereist de MQTT-integratie van Home Assistant, verbonden met dezelfde broker als evcc.",
-          "evcc_api_url": "Alleen voor de API. Het adres van de evcc-webinterface zoals Home Assistant het bereikt, bijv. http://192.168.1.20:7070. Wordt gecontroleerd bij opslaan.",
+          "evcc_api_url": "Alleen voor de API. Het adres van de evcc-webinterface zoals Home Assistant het bereikt, bijv. 192.168.1.20:7070 (http:// wordt aangevuld). Wordt gecontroleerd bij opslaan. Gebruik het IP-adres als Home Assistant de containernaam van evcc niet kent.",
           "evcc_mqtt_topic": "Alleen voor MQTT. Een topic dat evcc elke cyclus bijwerkt; normaal evcc/updated (pas het voorvoegsel aan als je het MQTT-topic van evcc hebt gewijzigd).",
           "evcc_watchdog_timeout": "Hoe lang evcc stil mag zijn voordat de stroom wordt begrensd. Normaal 120 s; ruim boven het interval van evcc houden."
         }
@@ -259,7 +259,7 @@
       "invalid_auth": "Ongeldige web-UI gebruikersnaam of wachtwoord.",
       "rest_cannot_connect": "Kan de web-UI van de lader niet bereiken. Controleer het IP-adres en de web-UI gegevens.",
       "unknown": "Onverwachte fout bij het verbinden.",
-      "evcc_cannot_connect": "Kan de API van evcc op dit adres niet bereiken.",
+      "evcc_cannot_connect": "evcc op {url} is niet bruikbaar: {reason}",
       "evcc_invalid_topic": "Vul één MQTT-topic in (geen wildcards).",
       "mqtt_not_configured": "De MQTT-integratie van Home Assistant is niet ingesteld. Voeg die eerst toe, verbonden met de broker waar evcc naar publiceert."
     }

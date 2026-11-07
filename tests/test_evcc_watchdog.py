@@ -9,7 +9,7 @@ bridge has to cap the current itself. The rules under test:
 * While capped, every write path (evcc commands, session start, reconnect,
   phase-recovery resume) respects the cap.
 * evcc back -> its last intent is written again (evcc won't re-send it).
-* Sources: API (/api/health, falling back to /api/state) or MQTT, where
+* Sources: API (/api/state, JSON only) or MQTT, where
   retained messages are not a sign of life.
 """
 from __future__ import annotations
@@ -92,14 +92,14 @@ def test_mqtt_live_message_marks_alive_retained_does_not() -> None:
 # --- API source -----------------------------------------------------------------
 
 
-def _run_with_server(routes: dict[str, int], body) -> object:
-    """Start a tiny aiohttp server with the given path -> status map."""
+def _run_with_server(routes: dict[str, tuple[int, str]], body) -> object:
+    """Start a tiny aiohttp server: path -> (status, body text)."""
 
     async def _main():
         app = web.Application()
-        for path, status in routes.items():
-            async def handler(request, status=status):
-                return web.Response(status=status, text="OK")
+        for path, (status, text) in routes.items():
+            async def handler(request, status=status, text=text):
+                return web.Response(status=status, text=text)
             app.router.add_get(path, handler)
         runner = web.AppRunner(app)
         await runner.setup()
@@ -115,39 +115,55 @@ def _run_with_server(routes: dict[str, int], body) -> object:
     return asyncio.run(_main())
 
 
-def test_api_probe_prefers_health() -> None:
+def _probe_error(routes) -> str:
     async def body(session, url):
-        return await async_probe_evcc_api(session, url)
-
-    assert _run_with_server({"/api/health": 200, "/api/state": 200}, body) == "/api/health"
-
-
-def test_api_probe_falls_back_to_state_on_404() -> None:
-    async def body(session, url):
-        return await async_probe_evcc_api(session, url)
-
-    assert _run_with_server({"/api/state": 200}, body) == "/api/state"
-
-
-def test_api_probe_unhealthy_evcc_is_not_alive() -> None:
-    async def body(session, url):
-        with pytest.raises(EvccApiError):
+        with pytest.raises(EvccApiError) as exc:
             await async_probe_evcc_api(session, url)
+        return str(exc.value)
+
+    return _run_with_server(routes, body)
+
+
+def test_api_probe_accepts_evcc_state_json() -> None:
+    async def body(session, url):
+        await async_probe_evcc_api(session, url)  # no exception = alive
         return True
 
-    assert _run_with_server({"/api/health": 503, "/api/state": 200}, body)
+    assert _run_with_server({"/api/state": (200, '{"version": "0.300.0"}')}, body)
 
 
-def test_api_probe_unreachable_is_not_alive() -> None:
+def test_api_probe_rejects_non_json_answer() -> None:
+    # e.g. the HA port or a router page: answers 200, but not as evcc.
+    reason = _probe_error({"/api/state": (200, "<html>hello</html>")})
+    assert "no JSON" in reason
+
+
+def test_api_probe_reports_http_status_and_login() -> None:
+    assert "HTTP 404" in _probe_error({})
+    assert "login" in _probe_error({"/api/state": (401, "{}")})
+
+
+def test_api_probe_unreachable_has_readable_reason() -> None:
     async def _main():
         async with aiohttp.ClientSession() as session:
-            with pytest.raises(EvccApiError):
+            with pytest.raises(EvccApiError) as exc:
                 await async_probe_evcc_api(session, "http://127.0.0.1:1", timeout_s=2)
+            return str(exc.value)
+
+    reason = asyncio.run(_main())
+    assert reason.startswith("cannot connect"), reason
+
+
+def test_api_probe_empty_address() -> None:
+    async def _main():
+        async with aiohttp.ClientSession() as session:
+            with pytest.raises(EvccApiError, match="no address"):
+                await async_probe_evcc_api(session, "  ")
 
     asyncio.run(_main())
 
 
-def test_watchdog_api_probe_marks_alive_and_remembers_path() -> None:
+def test_watchdog_api_probe_marks_alive_and_records_errors() -> None:
     clock = Clock()
 
     async def body(session, url):
@@ -156,11 +172,15 @@ def test_watchdog_api_probe_marks_alive_and_remembers_path() -> None:
         assert wd.is_stale()
         assert await wd.async_probe_api()
         assert not wd.is_stale()
-        assert wd._api_path == "/api/state"
         assert wd.last_error is None
+
+        bad = EvccWatchdog(None, mode="api", timeout_s=60, api_url=url + "/nope",
+                           session=session, clock=clock)
+        assert not await bad.async_probe_api()
+        assert "HTTP 404" in bad.last_error
         return True
 
-    assert _run_with_server({"/api/state": 200}, body)
+    assert _run_with_server({"/api/state": (200, "{}")}, body)
 
 
 # --- coordinator behaviour ----------------------------------------------------

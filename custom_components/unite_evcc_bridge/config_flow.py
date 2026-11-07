@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -69,6 +70,8 @@ from .evcc_watchdog import (
     normalize_evcc_url,
 )
 from .modbus import ModbusError, WebastoBridgeClient
+
+_LOGGER = logging.getLogger(__name__)
 from .registers import CHARGING_STATE, SERIAL_NUMBER
 from .rest_client import UniteRestAuthError, UniteRestError, async_build_rest_client
 
@@ -294,6 +297,7 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
     async def async_step_evcc(self, user_input: dict[str, Any] | None = None):
         """evcc watchdog: cap the current when evcc itself goes silent."""
         errors: dict[str, str] = {}
+        placeholders = {"status": self._evcc_status_text(), "url": "", "reason": ""}
         if user_input is not None:
             mode = user_input.get(CONF_EVCC_WATCHDOG_MODE, DEFAULT_EVCC_WATCHDOG_MODE)
             if mode == WATCHDOG_API:
@@ -301,8 +305,12 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                 user_input[CONF_EVCC_API_URL] = url
                 try:
                     await async_probe_evcc_api(async_get_clientsession(self.hass), url)
-                except EvccApiError:
-                    errors[CONF_EVCC_API_URL] = "evcc_cannot_connect"
+                except EvccApiError as err:
+                    # A form-wide error (shown at the top, with the reason) is
+                    # far more visible than a field error.
+                    errors["base"] = "evcc_cannot_connect"
+                    placeholders.update(url=url or "-", reason=str(err))
+                    _LOGGER.warning("evcc API check for %s failed: %s", url, err)
             elif mode == WATCHDOG_MQTT:
                 topic = str(user_input.get(CONF_EVCC_MQTT_TOPIC, "")).strip()
                 user_input[CONF_EVCC_MQTT_TOPIC] = topic
@@ -311,8 +319,10 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                 elif "mqtt" not in self.hass.config.components:
                     errors["base"] = "mqtt_not_configured"
             if not errors:
+                # Save straight away instead of returning to the menu: leaving
+                # the dialog without "Save & close" silently dropped this page.
                 self.options.update(user_input)
-                return await self.async_step_init()
+                return self.async_create_entry(title="", data=self.options)
 
         schema = vol.Schema(
             {
@@ -325,8 +335,9 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
                         mode=selector.SelectSelectorMode.LIST,
                     )
                 ),
+                # TEXT, not URL: a browser URL field rejects "evcc:7070" without a scheme.
                 vol.Optional(CONF_EVCC_API_URL, default=DEFAULT_EVCC_API_URL): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                 ),
                 vol.Optional(CONF_EVCC_MQTT_TOPIC, default=DEFAULT_EVCC_MQTT_TOPIC): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
@@ -341,7 +352,39 @@ class UniteEvccBridgeOptionsFlow(config_entries.OptionsFlow):
             step_id="evcc",
             data_schema=self.add_suggested_values_to_schema(schema, suggested),
             errors=errors,
+            description_placeholders=placeholders,
         )
+
+    def _evcc_status_text(self) -> str:
+        """One line on the running watchdog, shown at the top of the evcc page."""
+        nl = str(getattr(self.hass.config, "language", "en")).lower().startswith("nl")
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        watchdog = getattr(coordinator, "evcc_watchdog", None)
+        if watchdog is None:
+            return "Waakhond staat uit." if nl else "Watchdog is off."
+        ago = round(watchdog.seconds_since_seen())
+        source = f"{watchdog.mode.upper()} {watchdog.source}"
+        if coordinator.evcc_throttled:
+            text = (
+                f"⚠️ evcc stil sinds {ago} s - stroom begrensd ({source})"
+                if nl
+                else f"⚠️ evcc silent for {ago} s - current capped ({source})"
+            )
+        elif watchdog.is_stale():
+            text = (
+                f"⚠️ evcc {ago} s niet gezien ({source})"
+                if nl
+                else f"⚠️ evcc not seen for {ago} s ({source})"
+            )
+        else:
+            text = (
+                f"✅ evcc {ago} s geleden gezien ({source})"
+                if nl
+                else f"✅ evcc seen {ago} s ago ({source})"
+            )
+        if watchdog.last_error:
+            text += (" - laatste fout: " if nl else " - last error: ") + watchdog.last_error
+        return text
 
     async def async_step_reboot(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}

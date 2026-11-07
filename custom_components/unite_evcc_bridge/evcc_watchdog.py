@@ -32,14 +32,15 @@ WATCHDOG_MODES = (WATCHDOG_OFF, WATCHDOG_API, WATCHDOG_MQTT)
 TRANSITION_LOST = "lost"
 TRANSITION_RECOVERED = "recovered"
 
-# Tried in order. /api/health reflects whether evcc's control loop is healthy;
-# /api/state is the fallback for builds without the health endpoint.
-API_PATHS = ("/api/health", "/api/state")
+# evcc serves its full state as JSON here, without login. (There is no
+# /api/health in evcc.) A reply only counts when it is JSON, so an unrelated
+# web server on the same address can't pass for evcc.
+API_STATE_PATH = "/api/state"
 API_REQUEST_TIMEOUT_S = 5
 
 
 class EvccApiError(Exception):
-    """evcc's API could not be reached or answered with an error."""
+    """evcc's API could not be reached or did not answer like evcc."""
 
 
 def normalize_evcc_url(url: str) -> str:
@@ -55,35 +56,53 @@ def probe_interval_s(timeout_s: int) -> int:
     return max(5, min(15, int(timeout_s) // 4))
 
 
+def _describe(err: BaseException) -> str:
+    """A short, human reason for a failed request."""
+    if isinstance(err, asyncio.TimeoutError):
+        return "no answer (timeout)"
+    if isinstance(err, aiohttp.ClientConnectorError):
+        return f"cannot connect ({err.os_error.strerror or err.os_error})"
+    if isinstance(err, aiohttp.InvalidURL):
+        return "not a valid address"
+    text = str(err).strip()
+    return f"{type(err).__name__}: {text}" if text else type(err).__name__
+
+
 async def async_probe_evcc_api(
     session: aiohttp.ClientSession,
     base_url: str,
     *,
-    paths: tuple[str, ...] = API_PATHS,
     timeout_s: float = API_REQUEST_TIMEOUT_S,
-) -> str:
-    """Return the API path that answered 200. Raise EvccApiError otherwise.
+) -> None:
+    """Return when evcc answers /api/state with JSON. Raise EvccApiError otherwise.
 
-    A 404 moves on to the next path; any other non-200 status (an unhealthy
-    evcc answers /api/health with 5xx) counts as "not alive".
+    The exception message is meant for people: it says what went wrong.
     """
     base = normalize_evcc_url(base_url)
     if not base:
-        raise EvccApiError("no evcc URL configured")
-    for path in paths:
-        try:
-            async with session.get(
-                f"{base}{path}", timeout=aiohttp.ClientTimeout(total=timeout_s)
-            ) as resp:
-                if resp.status == 404:
-                    continue
-                await resp.read()
-                if resp.status == 200:
-                    return path
-                raise EvccApiError(f"{path} answered HTTP {resp.status}")
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as err:
-            raise EvccApiError(f"{base}{path}: {err or type(err).__name__}") from err
-    raise EvccApiError(f"no evcc API found at {base}")
+        raise EvccApiError("no address entered")
+    url = f"{base}{API_STATE_PATH}"
+    try:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=timeout_s)
+        ) as resp:
+            if resp.status in (401, 403):
+                raise EvccApiError(f"HTTP {resp.status}: evcc asks for a login")
+            if resp.status != 200:
+                raise EvccApiError(f"HTTP {resp.status} from {url}")
+            try:
+                data = await resp.json(content_type=None)
+            except ValueError as err:
+                raise EvccApiError(
+                    "the address answers, but not with evcc data (no JSON) - "
+                    "is this the evcc port?"
+                ) from err
+            if not isinstance(data, dict):
+                raise EvccApiError("the address answers, but not with evcc data")
+    except EvccApiError:
+        raise
+    except Exception as err:  # noqa: BLE001 - any failure means "not alive"
+        raise EvccApiError(_describe(err)) from err
 
 
 @dataclass
@@ -144,7 +163,6 @@ class EvccWatchdog:
         self._clock = clock
         self.liveness = EvccLiveness(timeout_s=self.timeout_s, last_seen=clock())
         self.last_error: str | None = None
-        self._api_path: str | None = None  # remembered after the first success
         self._unsub_timer: Callable[[], None] | None = None
         self._unsub_mqtt: Callable[[], None] | None = None
         self._stopped = False
@@ -208,11 +226,8 @@ class EvccWatchdog:
             from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
             self._session = async_get_clientsession(self.hass)
-        paths = (self._api_path,) if self._api_path else API_PATHS
         try:
-            self._api_path = await async_probe_evcc_api(
-                self._session, self.api_url, paths=paths
-            )
+            await async_probe_evcc_api(self._session, self.api_url)
         except EvccApiError as err:
             self.last_error = str(err)
             _LOGGER.debug("evcc API probe failed: %s", err)
