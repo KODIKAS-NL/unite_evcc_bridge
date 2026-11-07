@@ -102,6 +102,20 @@ Only change these if you know why. Wrong values can stall charging.
   (normally 5 s) — these only apply when their switch on the Charging screen
   is on.
 
+### evcc watchdog
+
+*Optional, off by default.* The charger's own backup current only kicks in
+when Home Assistant stops talking to it. If **evcc** stops instead (crash,
+container down, network), Home Assistant keeps the charger alive at evcc's
+last setting. The watchdog closes that gap; see
+[evcc watchdog](#evcc-watchdog-1) below.
+
+- **Watch evcc via** — *Off*, *evcc web API* or *MQTT*.
+- **evcc address** — for the API, e.g. `http://192.168.1.20:7070`
+  (checked when you save).
+- **MQTT topic** — for MQTT, normally `evcc/updated`.
+- **Waiting time before capping** — normally 120 s.
+
 ### Web UI
 
 Logs in to the charger's web interface. This adds a Restart button — only use
@@ -194,6 +208,39 @@ follows that contract:
 - **Failsafe fallback** — if Home Assistant, the network, or this integration
   stops writing the heartbeat, the charger drops to the configured failsafe
   current after the configured failsafe timeout.
+- **evcc itself is not covered by this** — Home Assistant writes the
+  heartbeat, so a dead evcc goes unnoticed by the charger. Turn on the
+  [evcc watchdog](#evcc-watchdog-1) for that.
+
+## evcc watchdog
+
+The watchdog looks for an independent sign of life from evcc. If there is
+none for the configured waiting time, the charge current is **capped at the
+backup current** (Advanced screen, normally 6 A; 0 A stops charging). evcc's
+requested current is kept: the number entity keeps showing it, and as soon
+as evcc is back the bridge writes it to the charger again (evcc does not
+re-send an unchanged value by itself).
+
+While capped, every write respects the cap: evcc commands, a new session,
+a Modbus reconnect and the end of a phase-recovery pause. A Repairs notice
+and the diagnostic **evcc connection** binary sensor show the state.
+
+Two sources, pick whichever fits your setup:
+
+- **evcc web API** — Home Assistant polls `/api/health` every few seconds
+  (falling back to `/api/state` on builds without it). An unhealthy evcc
+  (HTTP 5xx) counts as silent. Good for evcc in its own container.
+- **MQTT** — needs `mqtt:` configured in evcc and Home Assistant's MQTT
+  integration connected to the **same broker**. Any live message on the
+  topic counts; retained messages (replayed by the broker on subscribe) do
+  not. Check the topic with `mosquitto_sub -v -t 'evcc/updated'`: it should
+  tick every evcc interval.
+
+A command from evcc (current, on/off, phases) also counts as a sign of life.
+
+Limits: the watchdog shows that evcc is *running*. It cannot see an evcc that
+runs but can no longer reach Home Assistant (for example an expired token).
+Keep the waiting time well above evcc's `interval`.
 
 ## Leaving the integration
 

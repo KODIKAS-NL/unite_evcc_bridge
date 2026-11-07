@@ -8,6 +8,10 @@ from homeassistant.core import EVENT_HOMEASSISTANT_STOP, HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    CONF_EVCC_API_URL,
+    CONF_EVCC_MQTT_TOPIC,
+    CONF_EVCC_WATCHDOG_MODE,
+    CONF_EVCC_WATCHDOG_TIMEOUT,
     CONF_FAILSAFE_CURRENT,
     CONF_FAILSAFE_TIMEOUT,
     CONF_MAX_CURRENT,
@@ -17,6 +21,10 @@ from .const import (
     CONF_POLL_INTERVAL,
     CONF_SCAN_INTERVAL,
     CONF_UNIT_ID,
+    DEFAULT_EVCC_API_URL,
+    DEFAULT_EVCC_MQTT_TOPIC,
+    DEFAULT_EVCC_WATCHDOG_MODE,
+    DEFAULT_EVCC_WATCHDOG_TIMEOUT_S,
     DEFAULT_FAILSAFE_CURRENT_A,
     DEFAULT_FAILSAFE_TIMEOUT_S,
     DEFAULT_MAX_CURRENT,
@@ -29,6 +37,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import WebastoEvccCoordinator
+from .evcc_watchdog import WATCHDOG_API, WATCHDOG_MQTT, EvccWatchdog
 from .modbus import WebastoBridgeClient
 from .registers import SERIAL_NUMBER
 
@@ -72,6 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         phase_recovery_observe=int(options.get(CONF_PHASE_RECOVERY_OBSERVE, DEFAULT_PHASE_RECOVERY_OBSERVE_S)),
         phase_recovery_dwell=int(options.get(CONF_PHASE_RECOVERY_DWELL, DEFAULT_PHASE_RECOVERY_DWELL_S)),
     )
+    await _async_start_evcc_watchdog(hass, coordinator, options)
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception as err:  # noqa: BLE001
@@ -110,6 +120,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if coordinator.data is None:
         hass.async_create_task(coordinator.async_request_refresh())
     return True
+
+
+async def _async_start_evcc_watchdog(
+    hass: HomeAssistant, coordinator: WebastoEvccCoordinator, options
+) -> None:
+    """Attach the optional evcc watchdog (API or MQTT) to the coordinator."""
+    mode = options.get(CONF_EVCC_WATCHDOG_MODE, DEFAULT_EVCC_WATCHDOG_MODE)
+    if mode not in (WATCHDOG_API, WATCHDOG_MQTT):
+        return
+    watchdog = EvccWatchdog(
+        hass,
+        mode=mode,
+        timeout_s=int(options.get(CONF_EVCC_WATCHDOG_TIMEOUT, DEFAULT_EVCC_WATCHDOG_TIMEOUT_S)),
+        api_url=options.get(CONF_EVCC_API_URL, DEFAULT_EVCC_API_URL),
+        mqtt_topic=options.get(CONF_EVCC_MQTT_TOPIC, DEFAULT_EVCC_MQTT_TOPIC),
+    )
+    coordinator.evcc_watchdog = watchdog
+    try:
+        await watchdog.async_start()
+    except Exception as err:  # noqa: BLE001 - a missing source makes it fire, by design
+        _LOGGER.warning("evcc watchdog could not start cleanly: %s", err)
+    _LOGGER.info(
+        "evcc watchdog active via %s (%s), timeout %ss",
+        mode,
+        watchdog.source,
+        watchdog.timeout_s,
+    )
 
 
 async def _async_maybe_repair_unique_id(

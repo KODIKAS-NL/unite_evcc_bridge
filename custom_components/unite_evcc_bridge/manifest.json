@@ -1,6 +1,9 @@
 {
   "domain": "unite_evcc_bridge",
   "name": "Unite EVCC Bridge",
+  "after_dependencies": [
+    "mqtt"
+  ],
   "codeowners": [
     "@Dextro86"
   ],

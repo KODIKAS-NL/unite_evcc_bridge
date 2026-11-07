@@ -65,6 +65,17 @@ async def async_get_config_entry_diagnostics(
             "recovery_active": coordinator.recovery_active,
             "rest_restarting": coordinator.rest_restarting,
             "requested_phase": coordinator.requested_phase,
+            "evcc_watchdog": (
+                {
+                    "mode": coordinator.evcc_watchdog.mode,
+                    "timeout_s": coordinator.evcc_watchdog.timeout_s,
+                    "seconds_since_seen": round(coordinator.evcc_watchdog.seconds_since_seen(), 1),
+                    "throttled": coordinator.evcc_throttled,
+                    "last_error": coordinator.evcc_watchdog.last_error,
+                }
+                if coordinator.evcc_watchdog is not None
+                else None
+            ),
             "stats": asdict(stats),
             "snapshot": asdict(data) if data is not None else None,
         }

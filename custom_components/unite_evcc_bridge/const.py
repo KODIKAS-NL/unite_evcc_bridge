@@ -77,3 +77,19 @@ MIN_PHASE_RESTORE_DELAY_S = 0
 MAX_PHASE_RESTORE_DELAY_S = 60
 REST_TIMEOUT_S = 15
 HEARTBEAT_ALIVE_VALUE = 1
+
+# evcc watchdog: cap the charge current at the failsafe current when evcc
+# itself goes silent. The charger's own failsafe cannot see this, because Home
+# Assistant keeps writing the alive heartbeat as long as HA <-> charger works.
+# Source of the sign of life: evcc's HTTP API or an MQTT topic (see
+# evcc_watchdog.py). Off by default.
+CONF_EVCC_WATCHDOG_MODE = "evcc_watchdog_mode"
+CONF_EVCC_API_URL = "evcc_api_url"
+CONF_EVCC_MQTT_TOPIC = "evcc_mqtt_topic"
+CONF_EVCC_WATCHDOG_TIMEOUT = "evcc_watchdog_timeout"
+DEFAULT_EVCC_WATCHDOG_MODE = "off"
+DEFAULT_EVCC_API_URL = "http://evcc:7070"
+DEFAULT_EVCC_MQTT_TOPIC = "evcc/updated"
+DEFAULT_EVCC_WATCHDOG_TIMEOUT_S = 120
+MIN_EVCC_WATCHDOG_TIMEOUT_S = 30
+MAX_EVCC_WATCHDOG_TIMEOUT_S = 900

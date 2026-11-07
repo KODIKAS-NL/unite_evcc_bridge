@@ -190,6 +190,7 @@ class PhaseRecoveryMixin:
                 current = 0
             if current is None:
                 current = self.resume_current
+            current = self.cap_current(current)  # evcc watchdog, if it fired
             async with self._command_lock:
                 await self.client.write(CURRENT_LIMIT, current)
             _LOGGER.info(

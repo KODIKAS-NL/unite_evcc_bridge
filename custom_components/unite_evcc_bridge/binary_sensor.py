@@ -20,13 +20,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: WebastoEvccCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [
-            UniteEvccConnectionSensor(coordinator, entry.entry_id),
-            UniteEvccPhaseMismatchSensor(coordinator, entry.entry_id),
-            UniteEvccCableLockedSensor(coordinator, entry.entry_id),
-        ]
-    )
+    entities: list[BinarySensorEntity] = [
+        UniteEvccConnectionSensor(coordinator, entry.entry_id),
+        UniteEvccPhaseMismatchSensor(coordinator, entry.entry_id),
+        UniteEvccCableLockedSensor(coordinator, entry.entry_id),
+    ]
+    if coordinator.evcc_watchdog is not None:
+        entities.append(UniteEvccLivenessSensor(coordinator, entry.entry_id))
+    async_add_entities(entities)
 
 
 class UniteEvccConnectionSensor(WebastoEvccEntity, BinarySensorEntity):
@@ -97,3 +98,38 @@ class UniteEvccCableLockedSensor(WebastoEvccEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         data = self.coordinator.data
         return bool(data and data.cable_state == 3)
+
+
+class UniteEvccLivenessSensor(WebastoEvccEntity, BinarySensorEntity):
+    """Whether evcc shows signs of life (only with the evcc watchdog on)."""
+
+    _attr_translation_key = "evcc_connection"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: WebastoEvccCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id, "evcc_connection")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.evcc_watchdog is not None
+
+    @property
+    def is_on(self) -> bool:
+        watchdog = self.coordinator.evcc_watchdog
+        return bool(watchdog and not watchdog.is_stale())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        watchdog = self.coordinator.evcc_watchdog
+        if watchdog is None:
+            return {}
+        return {
+            "source": watchdog.mode,
+            "target": watchdog.source,
+            "timeout_s": watchdog.timeout_s,
+            "seconds_since_seen": round(watchdog.seconds_since_seen()),
+            "current_capped": self.coordinator.evcc_throttled,
+            "cap_current_a": self.coordinator.failsafe_current,
+            "last_error": watchdog.last_error,
+        }

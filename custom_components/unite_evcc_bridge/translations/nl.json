@@ -130,6 +130,9 @@
       },
       "phase_mismatch": {
         "name": "Fase-mismatch"
+      },
+      "evcc_connection": {
+        "name": "evcc-verbinding"
       }
     },
     "switch": {
@@ -166,6 +169,7 @@
         "menu_options": {
           "charge": "Laden",
           "advanced": "Geavanceerd",
+          "evcc": "evcc-waakhond",
           "reboot": "Web-UI",
           "save": "Opslaan en sluiten",
           "connection": "Verbinding"
@@ -207,6 +211,22 @@
           "phase_restore_delay": "Laat de lader de sessie afronden. Binnen deze tijd weer insteken annuleert het herstel. Normaal 5 s."
         }
       },
+      "evcc": {
+        "title": "evcc-waakhond",
+        "description": "De eigen noodstroom van de lader merkt alleen op als Home Assistant stil valt. Stopt evcc zelf (crash, netwerk, container uit), dan houdt Home Assistant de lader in leven op de laatste instelling van evcc. Met deze waakhond wordt de stroom begrensd op de noodstroom (scherm Geavanceerd) zodra evcc geen teken van leven geeft, en wordt de instelling van evcc teruggezet als het terugkomt.",
+        "data": {
+          "evcc_watchdog_mode": "evcc bewaken via",
+          "evcc_api_url": "evcc-adres",
+          "evcc_mqtt_topic": "MQTT-topic",
+          "evcc_watchdog_timeout": "Wachttijd vóór begrenzen"
+        },
+        "data_description": {
+          "evcc_watchdog_mode": "Uit, de web-API van evcc, of een MQTT-topic dat evcc elke cyclus publiceert. MQTT vereist de MQTT-integratie van Home Assistant, verbonden met dezelfde broker als evcc.",
+          "evcc_api_url": "Alleen voor de API. Het adres van de evcc-webinterface zoals Home Assistant het bereikt, bijv. http://192.168.1.20:7070. Wordt gecontroleerd bij opslaan.",
+          "evcc_mqtt_topic": "Alleen voor MQTT. Een topic dat evcc elke cyclus bijwerkt; normaal evcc/updated (pas het voorvoegsel aan als je het MQTT-topic van evcc hebt gewijzigd).",
+          "evcc_watchdog_timeout": "Hoe lang evcc stil mag zijn voordat de stroom wordt begrensd. Normaal 120 s; ruim boven het interval van evcc houden."
+        }
+      },
       "reboot": {
         "title": "Web-UI",
         "description": "Logt in op de webomgeving van de lader. Dit voegt een Herstart-knop toe — alleen gebruiken als de lader vastzit, een lopende laadsessie stopt ermee. De login is ook nodig voor \"Herstel voor Unite-bug\" op het Laden-scherm.",
@@ -238,7 +258,10 @@
     "error": {
       "invalid_auth": "Ongeldige web-UI gebruikersnaam of wachtwoord.",
       "rest_cannot_connect": "Kan de web-UI van de lader niet bereiken. Controleer het IP-adres en de web-UI gegevens.",
-      "unknown": "Onverwachte fout bij het verbinden."
+      "unknown": "Onverwachte fout bij het verbinden.",
+      "evcc_cannot_connect": "Kan de API van evcc op dit adres niet bereiken.",
+      "evcc_invalid_topic": "Vul één MQTT-topic in (geen wildcards).",
+      "mqtt_not_configured": "De MQTT-integratie van Home Assistant is niet ingesteld. Voeg die eerst toe, verbonden met de broker waar evcc naar publiceert."
     }
   },
   "selector": {
@@ -246,6 +269,13 @@
       "options": {
         "1": "1-fase (1P)",
         "3": "3-fase (3P)"
+      }
+    },
+    "evcc_watchdog_mode": {
+      "options": {
+        "off": "Uit",
+        "api": "evcc web-API",
+        "mqtt": "MQTT"
       }
     }
   },
@@ -257,6 +287,10 @@
     "fix_failed": {
       "title": "Faseherstel blijft mislukken",
       "description": "Het faseherstel is deze sessie twee keer uitgevoerd maar de auto blijft op de verkeerde fasen hangen. Download de diagnose (apparaatpagina, drie puntjes) en deel het bestand op het forum."
+    },
+    "evcc_lost": {
+      "title": "evcc reageert niet — laden begrensd",
+      "description": "evcc geeft al een tijdje geen teken van leven, daarom is de laadstroom begrensd op de noodstroom. Controleer of de evcc-container draait en bereikbaar is. De instelling van evcc wordt automatisch teruggezet zodra het weer reageert, en deze melding verdwijnt vanzelf."
     }
   }
 }
